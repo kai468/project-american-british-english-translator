@@ -11,7 +11,6 @@ const Locale = {
     britishToAmerican: "british-to-american"
   };
 
-
 class Translator {
 
     _getLocaleParameters(locale) {
@@ -24,10 +23,10 @@ class Translator {
                     ...Object.entries(americanToBritishTitles)
                 ]),
                 ":",
-                "."
+                ".",
+                Object.getOwnPropertyNames(americanToBritishTitles)
             ];
         } else if (locale == Locale.britishToAmerican) {
-
             return [
                 Object.fromEntries([
                     ...Object.entries(britishOnly),
@@ -35,115 +34,58 @@ class Translator {
                     ...Object.entries(americanToBritishTitles).map(e => e.reverse())
                 ]),
                 "\\.",
-                ":"
+                ":",
+                Object.values(americanToBritishTitles)
             ]
         } else {
             throw new Error('Invalid Locale: ' + locale);
         }
     }
 
-    _translate(text, locale) {
-        const [dict, timeFrom, timeTo] = this._getLocaleParameters(locale);
-        const textArray = text.split(" "); 
-        const translationArray = []; 
-        const keys = Object.getOwnPropertyNames(dict);
-        const keysFirstword = keys.map(k => k.split(" ")[0]);
-        const titles = [...Object.getOwnPropertyNames(americanToBritishTitles), ...Object.values(americanToBritishTitles)];
-
-        let fullstop, textToMatch, potentiallyMatchingKeys, j, match;
-
-        for (let i = 0; i < textArray.length; i++) {
-            fullstop = false;
-            textToMatch = textArray[i].toLowerCase();
-            
-            if (textToMatch.slice(-1) == "." && !titles.includes(textToMatch)) {
-                // cut off fullstop for dictionary lookup:
-                textToMatch = textToMatch.slice(0, -1);
-                fullstop = true; 
+    _cbPrepTextArray(element, dict, titles, timeFrom, timeTo) {
+        // callback function to prepare the textArray for translation -> handle / extract special cases (titles, datetimes) and fullstops
+        const dateRegex = new RegExp("^(\\d{1,2})" + timeFrom + "(\\d{1,2})");
+        if (dateRegex.test(element)) {
+            return {
+                text: element.replace(dateRegex, "$1" + timeTo + "$2"),
+                specialCase: true,
+                fullstop: false    
             }
-
-            if (keysFirstword.includes(textToMatch)) {
-
-                potentiallyMatchingKeys = keys.filter(k => k.split(" ")[0] == textToMatch)
-                                              .map(k => k.split(" "))
-                                              .sort((a, b) => (b.length - a.length));
-
-                if (potentiallyMatchingKeys.length == 1 || fullstop) {
-                    // only one exact match -> add to translation and move on:
-                    if (titles.includes(textToMatch)) {
-                        translationArray.push(dict[textToMatch][0].toUpperCase() + dict[textToMatch].substring(1));
-                    } else if (potentiallyMatchingKeys[0].length > 1) {
-
-                        // check if the rest of the words is matching: 
-                        textToMatch = [textToMatch];
-                        // get original text in same length TODO: this is done twice in the code (see l. 113ff) -> refactor
-                        while (textToMatch.length < potentiallyMatchingKeys[0].length) {
-                            if (textArray[i + textToMatch.length].slice(-1) == ".") {
-                                // fullstop -> we have to break
-                                textToMatch.push(textArray[i + textToMatch.length].slice(0, -1).toLowerCase());
-                                fullstop = true;
-                                break;
-                            } else {
-                                // no fullstop -> we can keep adding words:
-                                textToMatch.push(textArray[i + textToMatch.length].toLowerCase());
-                            }   
-                        }
-
-                        // check if it's a match: 
-                        if (JSON.stringify(textToMatch) === JSON.stringify(potentiallyMatchingKeys[0])) {
-                            // add to translation + skip indices:
-                            dict[potentiallyMatchingKeys[0].join(" ")].split(" ").forEach((word, index) => {
-                                translationArray.push(word + (fullstop && (index == textToMatch.length - 1) ? "." : ""))
-                            });
-                            i += textToMatch.length - 1;
-                        } else {
-                            translationArray.push(textArray[i]);
-                        }
-
-                       
-                    } else {
-                        translationArray.push(dict[textToMatch] + (fullstop ? "." : ""));
-                    }
-                } else {
-                    match = false; 
-                    textToMatch = [textToMatch];
-                    // check if there's a match -> potentially matching keys are already sorted by length because the longest matching phrase (word count) is the most accurate and therefore has priority
-                    for (j = 0; j < potentiallyMatchingKeys.length; j++) {
-                        // get original text in same length 
-                        while (textToMatch.length < potentiallyMatchingKeys[j].length) {                         
-                            if (textArray[i + textToMatch.length].slice(-1) == ".") {
-                                // fullstop -> we have to break
-                                textToMatch.push(textArray[i + textToMatch.length].slice(0, -1).toLowerCase());
-                                fullstop = true;
-                                break;
-                            } else {
-                                // no fullstop -> we can keep adding words:
-                                textToMatch.push(textArray[i + textToMatch.length].toLowerCase());
-                            }   
-                        }
-                        // check if it's a match: 
-                        if (JSON.stringify(textToMatch) === JSON.stringify(potentiallyMatchingKeys[j])) {
-                            // add to translation + skip indices:
-                            dict[potentiallyMatchingKeys[j].join(" ")].split(" ").forEach((word, index) => {
-                                translationArray.push(word + (fullstop && (index == textToMatch.length - 1) ? "." : ""))
-                            });
-                            i += textToMatch.length - 1;
-                            match = true;
-                            break;
-                        }
-                    }
-                    if (!match) {
-                        // keep original word:
-                        translationArray.push(textArray[i]);
-                    }
-                }
-                
-            } else {
-                // keep original word:
-                translationArray.push(textArray[i]);
+        } else if (titles.includes(element.toLowerCase())) {
+            // title -> translate and freeze: 
+            return {
+                text: dict[element.toLowerCase()][0].toUpperCase() + dict[element.toLowerCase()].substring(1),
+                specialCase: true,
+                fullstop: false
+            }
+        } else {
+            // standard case with/without fullstop: 
+            return {
+                text: element.slice(-1) == "." ? element.slice(0, -1) : element,
+                specialCase: false,
+                fullstop: (element.slice(-1) == ".")
             }
         }
+    };
 
+    _translate(text, locale) {
+        const [dict, timeFrom, timeTo, titles] = this._getLocaleParameters(locale);
+        const textArray = text.split(" ").map(e => this._cbPrepTextArray(e, dict, titles, timeFrom, timeTo)); 
+        const keys = Object.getOwnPropertyNames(dict);
+        const keysFirstword = keys.map(k => k.split(" ")[0]);
+
+        let translationArray = []; 
+        let match;
+        
+        for (let i = 0; i < textArray.length; i++) {
+            match = false;
+            if (!textArray[i].specialCase) {
+               [match, i, translationArray] = this._translateSinglePhrase(textArray, i, dict, keys, keysFirstword, translationArray);
+            }
+            if (!match) {
+                translationArray.push(textArray[i].text + (textArray[i].fullstop ? "." : ""));
+            }
+        }
 
         // time format conversion: 
         let translation = translationArray.join(" ");
@@ -153,80 +95,47 @@ class Translator {
         }
 
         return translation;
+    }
 
-    };
+    _translateSinglePhrase(textArray, i, dict, keys, keysFirstword, translationArray) {
+        let potentialMatch; 
+        let fullstop; 
+        const potentiallyMatchingKeys = keys.filter(k => k.split(" ")[0] == textArray[i].text.toLowerCase())
+                                            .map(k => k.split(" "))
+                                            .sort((a, b) => (b.length - a.length));
+        for (let k = 0; k < potentiallyMatchingKeys.length; k++) {
+            [potentialMatch, fullstop] = this._getTextToMatch(textArray, i, potentiallyMatchingKeys[k].length);
+            if (JSON.stringify(potentialMatch) === JSON.stringify(potentiallyMatchingKeys[k])) {
+                translationArray.push(dict[potentialMatch.join(" ")] + (fullstop ? "." : ""));
+                return [true, i + potentialMatch.length - 1, translationArray];
+            }
+        }
 
-    /*_translate(text, dict, timeFrom, timeTo) {
-        let textArray = text.split(" "); 
-        const regex = new RegExp("(\\d{1,2})" + timeFrom + "(\\d{1,2})");
+        return [false, i, translationArray];
         
-        if (text.match(regex)) {    // TODO: move to end / encapsulate in function
-            // time format conversion: 
-            textArray = text.replace(regex, this._highlight("$1" + timeTo + "$2")).split(" ");
+    }
+
+    _getTextToMatch(textArray, i, length) {
+        const textToMatch = [textArray[i].text.toLowerCase()]; 
+        let fullstop = false; 
+        let next; 
+        if (textArray[i].fullstop) {
+            return [textToMatch, true];
         }
-
-        const translationArray = []; 
-        const keys = Object.getOwnPropertyNames(dict);
-        const keys_firstword = keys.map(k => k.split(" ")[0]);
-        const titles = [...Object.getOwnPropertyNames(americanToBritishTitles), ...Object.values(americanToBritishTitles)];
-
-        let fullstop, potential_matching_keys, text_to_match, match, j; 
-
-        for (let i = 0; i < textArray.length; i++) {
-            fullstop = false; 
-            text_to_match = textArray[i].toLowerCase();
-            if ((text_to_match).slice(-1) == "." && !titles.includes(text_to_match)) {
-                text_to_match = text_to_match.slice(0, -1);
+        while (textToMatch.length < length) {
+            next = textArray[i + textToMatch.length];
+            if (next.specialCase) {
+                break; 
+            }
+            textToMatch.push(next.text.toLowerCase());
+            if (next.fullstop) {
                 fullstop = true; 
-            }
-            if (keys.includes(text_to_match)) {
-                // translate (but write edit titles to first letter uppercase):
-                if (titles.includes(text_to_match)) {
-                    translationArray.push(this._highlight(dict[text_to_match][0].toUpperCase() + dict[text_to_match].substring(1)) + (fullstop ? "." : ""));
-                } else {
-                    translationArray.push(this._highlight(dict[text_to_match]) + (fullstop ? "." : ""));
-                }
-            } else if (keys_firstword.includes(text_to_match)) {
-                // check if the rest of the phrase matches the dictionary and decide whether to translate or omit
-                potential_matching_keys = keys.filter(k => k.split(" ")[0] == text_to_match);
-                match = false; 
-                j = 0;
-                while (potential_matching_keys.length > 0) {
-                    // check if we have an exact match:
-                    if (potential_matching_keys.includes(text_to_match)) {
-                        translationArray.push(this._highlight(dict[text_to_match]) + (fullstop ? "." : ""));
-                        i += text_to_match.split(" ").length - 1;
-                        match = true;
-                        break;
-                    } else {
-                        // add a word and repeat the same thing:
-                        j++;
-                        text_to_match += " " + textArray[i + j].toLowerCase();
-                        if ((text_to_match).slice(-1) == "." && !titles.includes(text_to_match)) {
-                            text_to_match = text_to_match.slice(0, -1);
-                            fullstop = true; 
-                        }   // TODO: refactoring -> make a helper function out of this
-                        potential_matching_keys = potential_matching_keys.filter(k => k.startsWith(text_to_match));
-                    }
-                }
-                // if there was no match we need to add the original word to output:
-                if (!match) {
-                    translationArray.push(textArray[i]);
-                }
-            } else {
-                // keep original: 
-                translationArray.push(textArray[i]);
+                break; 
             }
         }
 
-        const translation = translationArray.join(" ");
-        if (translation == text) {
-            return "Everything looks good to me!";
-        } else {
-            return translation;
-        }
-    };*/
-
+        return [textToMatch, fullstop]; 
+    }
 
     _highlightDelta(original, translation) {
         // assumption: if this function is called, there's a difference between original and translation

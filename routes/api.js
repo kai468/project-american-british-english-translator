@@ -10,7 +10,6 @@ module.exports = function (app) {
 
   app.route('/api/translate')
     .post((req, res) => {
-      // input validation:
       if (req.body.text === '') {
         res.json({
           error: 'No text to translate'
